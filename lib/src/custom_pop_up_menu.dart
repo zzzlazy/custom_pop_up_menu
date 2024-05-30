@@ -48,6 +48,7 @@ class CustomPopupMenu extends StatefulWidget {
     this.verticalMargin = 10.0,
     this.position,
     this.menuOnChange,
+    this.childMaxDisplayHeight,
     this.enablePassEvent = true,
   });
 
@@ -68,9 +69,17 @@ class CustomPopupMenu extends StatefulWidget {
   /// It only works when [barrierColor] is transparent.
   final bool enablePassEvent;
 
+  /// The max display height of the child widget.
+  /// If the height of the child widget is greater than this value,
+  /// menu will be displayed at the center of the child widget.
+  /// if the value is 0, the default value is screen height - kToolbarHeight - kBottomNavigationBarHeight.
+  final double? childMaxDisplayHeight;
+
   @override
   _CustomPopupMenuState createState() => _CustomPopupMenuState();
 }
+
+var _statusBarHeight = 0.0;
 
 class _CustomPopupMenuState extends State<CustomPopupMenu> {
   RenderBox? _childBox;
@@ -91,6 +100,7 @@ class _CustomPopupMenuState extends State<CustomPopupMenu> {
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
+        _statusBarHeight = MediaQuery.of(context).padding.top;
         Widget menu = Center(
           child: Container(
             constraints: BoxConstraints(
@@ -165,7 +175,7 @@ class _CustomPopupMenuState extends State<CustomPopupMenu> {
       },
     );
     if (_overlayEntry != null) {
-      Overlay.of(context)!.insert(_overlayEntry!);
+      Overlay.of(context).insert(_overlayEntry!);
     }
   }
 
@@ -196,7 +206,7 @@ class _CustomPopupMenuState extends State<CustomPopupMenu> {
       if (mounted) {
         _childBox = context.findRenderObject() as RenderBox?;
         _parentBox =
-            Overlay.of(context)?.context.findRenderObject() as RenderBox?;
+            Overlay.of(context).context.findRenderObject() as RenderBox?;
       }
     });
   }
@@ -233,10 +243,9 @@ class _CustomPopupMenuState extends State<CustomPopupMenu> {
     if (Platform.isIOS) {
       return child;
     } else {
-      return WillPopScope(
-        onWillPop: () {
-          _hideMenu();
-          return Future.value(true);
+      return PopScope(
+        onPopInvoked: (pop) {
+          if (pop) _hideMenu();
         },
         child: child,
       );
@@ -257,6 +266,7 @@ enum _MenuPosition {
   topLeft,
   topCenter,
   topRight,
+  center,
 }
 
 class _MenuLayoutDelegate extends MultiChildLayoutDelegate {
@@ -264,9 +274,11 @@ class _MenuLayoutDelegate extends MultiChildLayoutDelegate {
     required this.anchorSize,
     required this.anchorOffset,
     required this.verticalMargin,
+    this.maxDisplayHeight,
     this.position,
   });
 
+  final double? maxDisplayHeight;
   final Size anchorSize;
   final Offset anchorOffset;
   final double verticalMargin;
@@ -316,7 +328,12 @@ class _MenuLayoutDelegate extends MultiChildLayoutDelegate {
       menuPosition = isTop ? _MenuPosition.topRight : _MenuPosition.bottomRight;
     } else {
       menuPosition =
-          isTop ? _MenuPosition.topCenter : _MenuPosition.bottomCenter;
+      isTop ? _MenuPosition.topCenter : _MenuPosition.bottomCenter;
+    }
+
+    var bottomY = anchorTopY - verticalMargin - arrowSize.height - contentSize.height;
+    if (bottomY < _statusBarHeight + kBottomNavigationBarHeight && menuPosition == _MenuPosition.topCenter) {
+      menuPosition = _MenuPosition.center;
     }
 
     switch (menuPosition) {
@@ -376,6 +393,16 @@ class _MenuLayoutDelegate extends MultiChildLayoutDelegate {
           anchorTopY - verticalMargin - arrowSize.height - contentSize.height,
         );
         break;
+      case _MenuPosition.center:
+        arrowOffset = Offset(
+          anchorCenterX - arrowSize.width / 2,
+          size.height / 2 - arrowSize.height / 2 +  contentSize.height - 52
+        );
+        contentOffset = Offset(
+          anchorCenterX - contentSize.width / 2,
+          size.height / 2 - contentSize.height / 2
+        );
+        break;
     }
     if (hasChild(_MenuLayoutId.content)) {
       positionChild(_MenuLayoutId.content, contentOffset);
@@ -392,6 +419,7 @@ class _MenuLayoutDelegate extends MultiChildLayoutDelegate {
       // bottom
       isBottom = true;
     }
+    bool isCenter = menuPosition == _MenuPosition.center;
     if (hasChild(_MenuLayoutId.arrow)) {
       positionChild(
         _MenuLayoutId.arrow,
